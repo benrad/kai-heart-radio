@@ -2,12 +2,13 @@ import requests
 import ConfigParser
 from bs4 import BeautifulSoup
 from urllib2 import quote
+from base64 import b64encode
 
 
 config = ConfigParser.ConfigParser()
-config.read('confix.txt')
+config.read('config.txt')
 
-SPOTIFY_ACCOUNT_HOST = 'https://accounts.spotify.com/'
+SPOTIFY_ACCOUNT_HOST = 'https://accounts.spotify.com/api/'
 SPOTIFY_API_HOST = 'https://api.spotify.com/v1/'
 SPOTIFY_CLIENT_ID = config.get('spotifycredentials', 'client_id')
 SPOTIFY_CLIENT_SECRET = config.get('spotifycredentials', 'client_secret')
@@ -48,8 +49,8 @@ def search_song(title, artist):
 	Searches for a song by its title and artist. 
 	Returns a string of the best result's spotify uri, or the empty string if no result.
 	"""
-	title = urllib2.quote(title, safe='')
-	artist = urllib2.quote(artist, safe='')
+	title = quote(title, safe='')
+	artist = quote(artist, safe='')
 	base_url = SPOTIFY_API_HOST + 'search/' + '?q=track:{0}+artist:{1}&type=track&limit=1'
 	url = base_url.format(title, artist)
 
@@ -65,8 +66,14 @@ def add_songs(playlist_id, user_id, uris):
 	Adds songs from a list of spotify uris to user_id's playlist_id.
 	"""
 	token = get_token()
-	# Should use position=0 url param to prepend songs, otherwise will be appended
-	pass
+	headers = {'Authorization': 'Bearer ' + token}
+	base_url = SPOTIFY_API_HOST + 'users/{0}/playlists/{1}/tracks?position=0&uris={2}'
+
+	formatted_uris = [quote('spotify:track:{0}'.format(uri)) for uri in uris]
+	uri_string = ','.join(formatted_uris)
+
+	url = base_url.format(SPOTIFY_USER_ID, SPOTIFY_PLAYLIST_ID, uri_string)
+	requests.post(url, headers=headers)
 
 
 def get_token():
@@ -75,12 +82,19 @@ def get_token():
 	Returns the access token for that user.
 	If a new refresh token is sent, that refresh token is written to the config file. 
 	"""
-	refresh_token = config.read('spotifycredentials', 'refresh_token')
-	pass
+	url = SPOTIFY_ACCOUNT_HOST + 'token'
+	current_refresh_token = config.read('spotifycredentials', 'refresh_token')
+	body = {'grant_type': 'refresh_token', 'refresh_token': current_refresh_token}
+	auth_header = 'Basic ' + b64encode('{0}:{1}'.format(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET))
+	headers = {'Authorization': auth_header}
+	
+	response = requests.post(url, headers=headers, data=body).json()
+	if response.has_key('refresh_token'):
+		config.set('spotifycredentials', 'refresh_token', response['refresh_token'])
+	return response['access_token']
 
 
 def main():
-	playlist_id = spotify:user:1248422519:playlist:3zJ2HaPyALFHcyTZnh8BXl
 	songs = get_songs()
 	uris = [search_song(song['title'], song['artist']) for song in songs]
 	add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
