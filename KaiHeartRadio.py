@@ -58,12 +58,36 @@ def search_song(title, artist):
 
 	if results['tracks']['total'] == 0:
 		return ''
-	return results['tracks']['items'][0]['uri']
+	uri_string = results['tracks']['items'][0]['uri']
+	return uri_string[uri_string.rfind(':'):]  # Strip off the 'spotify:track:' tag.
+
+
+def get_playlist_contents(playlist_id, user_id):
+	"""
+	Gets the latest 100 tracks in a playlist.
+	Returns a list of spotify track uris.
+	"""
+	token = get_token()
+	headers = {'Authorization': 'Bearer ' + token}
+	base_url = SPOTIFY_API_HOST + 'users/{0}/playlists/{1}/tracks'
+	url = base_url.format(SPOTIFY_USER_ID, SPOTIFY_PLAYLIST_ID)
+	response = requests.get(url, headers=headers).json()  # Todo: Handle errors here. Not using this function so ok for now.
+
+	uris = []
+	for item in response['items']:
+		uri_string = item['track']['uri']
+		uris.append(uri_string[uri_string.rfind(':'):])
+	return uris
 
 
 def add_songs(playlist_id, user_id, uris):
 	"""
 	Adds songs from a list of spotify uris to user_id's playlist_id.
+	"""
+	"""
+	TODO: ensure duplicates not added or else they'll pop to the top of the playlist
+	Not going to do this right now. If you want the playlist to be a record of daily tracks, 
+	doesn't make sense to get rid of duplicates.
 	"""
 	token = get_token()
 	headers = {'Authorization': 'Bearer ' + token}
@@ -100,4 +124,4 @@ def main():
 	add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
 
 
-# Need to ensure duplicates not added or else they'll pop to the top of the playlist
+
