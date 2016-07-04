@@ -3,6 +3,7 @@ import ConfigParser
 from bs4 import BeautifulSoup
 from urllib2 import quote
 from base64 import b64encode
+from time import sleep
 
 
 config = ConfigParser.ConfigParser()
@@ -10,37 +11,46 @@ config.read('config.txt')
 
 SPOTIFY_ACCOUNT_HOST = 'https://accounts.spotify.com/api/'
 SPOTIFY_API_HOST = 'https://api.spotify.com/v1/'
-SPOTIFY_CLIENT_ID = config.get('spotifycredentials', 'client_id')
-SPOTIFY_CLIENT_SECRET = config.get('spotifycredentials', 'client_secret')
-SPOTIFY_USER_ID = '1248422519':
-SPOTIFY_PLAYLIST_ID = '3zJ2HaPyALFHcyTZnh8BXl'
+
+SPOTIFY_CLIENT_ID = config.get('spotify_credentials', 'client_id')
+SPOTIFY_CLIENT_SECRET = config.get('spotify_credentials', 'client_secret')
+SPOTIFY_USER_ID = config.get('spotify_user_info', 'user_id')
+SPOTIFY_PLAYLIST_ID = config.get('spotify_user_info', 'playlist_id')
 
 
-def get_songs():
+def get_songs(url, latest=True):
 	"""
-	Gets the most recent single-day listing of tracks.
+	Gets the tracks from a marketplace.org/latest-music page.
+	If latest is True, gets only the latest day. False gets all days on page.
 	Returns a list of dicts of artist, title that represent song listings. 
 	Returns the empty list if connection fails or no songs found.
 	"""
 	try:
-		page = requests.get('http://www.marketplace.org/latest-music')
+		page = requests.get(url)
 	except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout):
 		return []
 
 	html = BeautifulSoup(page.text, 'html.parser')
-	listing_div = html.find('div', class_='episode-music')
-	# Parse into songs
-	song_groups = listing_div.find_all('div', class_='episode-music-group')
-	# Divs with additional class "last" are the links to amazon; we don't want those
-	last_divs = listing_div.find_all('div', class_='last')
-	song_listings = [song for song in song_groups if song not in last_divs]
-
 	results = []
-	for song in song_listings:
-		title = song.find('a', class_='episode-music-title').text
-		artist = song.find('div', class_='episode-music-artist').text
-		results.append({'title': title, 'artist': artist})
-	
+	if latest:
+		# Get just the latest day's group of listings	
+		listing_divs = [html.find('div', class_='episode-music')]
+	else:
+		# Get all days' listings
+		listing_divs = html.find_all('div', class_='episode-music')
+	for div in listing_divs:
+		# Parse into songs
+		song_groups = div.find_all('div', class_='episode-music-group')
+		# Divs with additional class "last" are the links to amazon; we don't want those
+		last_divs = div.find_all('div', class_='last')
+		song_listings = [song for song in song_groups if song not in last_divs]
+
+
+		for song in song_listings:
+			title = song.find('a', class_='episode-music-title').text
+			artist = song.find('div', class_='episode-music-artist').text
+			results.append({'title': title, 'artist': artist})
+		
 	return results
 
 
@@ -59,7 +69,7 @@ def search_song(title, artist):
 	if results['tracks']['total'] == 0:
 		return ''
 	uri_string = results['tracks']['items'][0]['uri']
-	return uri_string[uri_string.rfind(':'):]  # Strip off the 'spotify:track:' tag.
+	return uri_string[uri_string.rfind(':')+1:]  # Strip off the 'spotify:track:' tag.
 
 
 def get_playlist_contents(playlist_id, user_id):
@@ -93,11 +103,13 @@ def add_songs(playlist_id, user_id, uris):
 	headers = {'Authorization': 'Bearer ' + token}
 	base_url = SPOTIFY_API_HOST + 'users/{0}/playlists/{1}/tracks?position=0&uris={2}'
 
-	formatted_uris = [quote('spotify:track:{0}'.format(uri)) for uri in uris]
+	formatted_uris = [quote('spotify:track:{0}'.format(uri), safe='') for uri in uris]
 	uri_string = ','.join(formatted_uris)
 
 	url = base_url.format(SPOTIFY_USER_ID, SPOTIFY_PLAYLIST_ID, uri_string)
-	requests.post(url, headers=headers)
+	response = requests.post(url, headers=headers)
+	print response.status_code
+	print response.text
 
 
 def get_token():
@@ -107,21 +119,39 @@ def get_token():
 	If a new refresh token is sent, that refresh token is written to the config file. 
 	"""
 	url = SPOTIFY_ACCOUNT_HOST + 'token'
-	current_refresh_token = config.read('spotifycredentials', 'refresh_token')
+	current_refresh_token = config.get('spotify_credentials', 'refresh_token')
 	body = {'grant_type': 'refresh_token', 'refresh_token': current_refresh_token}
 	auth_header = 'Basic ' + b64encode('{0}:{1}'.format(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET))
 	headers = {'Authorization': auth_header}
 	
 	response = requests.post(url, headers=headers, data=body).json()
 	if response.has_key('refresh_token'):
-		config.set('spotifycredentials', 'refresh_token', response['refresh_token'])
+		config.set('spotify_credentials', 'refresh_token', response['refresh_token'])
 	return response['access_token']
 
 
 def main():
-	songs = get_songs()
-	uris = [search_song(song['title'], song['artist']) for song in songs]
-	add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
+	
+	if config.getboolean('spotify_user_info', 'is_new_playlist'):
+		# Playlist is empty, so prime the playlist with ~6 months' worth of titles
+		for i in range(13, 0, -1):
+			songs = get_songs('http://www.marketplace.org/latest-music?page={0}', latest=False)
+			uris = [search_song(song['title'], song['artist']) for song in songs]
+			add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
+
+		songs = get_songs('http://www.marketplace.org/latest-music', latest=False)
+		uris = [search_song(song['title'], song['artist']) for song in songs]
+		add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
+		config.set('spotify_user_info', 'is_new_playlist', False)
+
+	else:
+		songs = get_songs('http://www.marketplace.org/latest-music')
+		uris = [search_song(song['title'], song['artist']) for song in songs]
+		add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
+
+
+if __name__ == '__main__':
+	main()
 
 
 
