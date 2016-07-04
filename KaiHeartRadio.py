@@ -1,5 +1,6 @@
 import requests
 import ConfigParser
+import logging
 from bs4 import BeautifulSoup
 from urllib2 import quote
 from base64 import b64encode
@@ -47,9 +48,10 @@ def get_songs(url, latest=True):
 
 
 		for song in song_listings:
-			title = song.find('a', class_='episode-music-title').text
-			artist = song.find('div', class_='episode-music-artist').text
+			title = song.find('a', class_='episode-music-title').text.encode('utf8')
+			artist = song.find('div', class_='episode-music-artist').text.encode('utf8')
 			results.append({'title': title, 'artist': artist})
+			logging.debug('get_songs: found song {0} by {1}'.format(title, artist))
 		
 	return results
 
@@ -67,8 +69,10 @@ def search_song(title, artist):
 	results = requests.get(url).json()
 
 	if results['tracks']['total'] == 0:
+		logging.debug('Found no results for song {0}'.format(title))
 		return ''
 	uri_string = results['tracks']['items'][0]['uri']
+	logging.debug('Found uri {0} for song {1}'.format(uri_string[uri_string.rfind(':')+1:], title))
 	return uri_string[uri_string.rfind(':')+1:]  # Strip off the 'spotify:track:' tag.
 
 
@@ -99,17 +103,21 @@ def add_songs(playlist_id, user_id, uris):
 	Not going to do this right now. If you want the playlist to be a record of daily tracks, 
 	doesn't make sense to get rid of duplicates.
 	"""
+	for uri in uris:
+		logging.debug('Adding uri {0}'.format(uri))
 	token = get_token()
 	headers = {'Authorization': 'Bearer ' + token}
 	base_url = SPOTIFY_API_HOST + 'users/{0}/playlists/{1}/tracks?position=0&uris={2}'
 
-	formatted_uris = [quote('spotify:track:{0}'.format(uri), safe='') for uri in uris]
+	formatted_uris = [quote('spotify:track:{0}'.format(uri), safe='') for uri in uris if uri]  # Probably shouldn't quote
 	uri_string = ','.join(formatted_uris)
 
 	url = base_url.format(SPOTIFY_USER_ID, SPOTIFY_PLAYLIST_ID, uri_string)
 	response = requests.post(url, headers=headers)
-	print response.status_code
-	print response.text
+	logging.debug('Called add url {0}'.format(url))
+	logging.debug('Got response {0}'.format(response.text))
+	if response.status_code == 429:
+		logging.warning('!!!!!!!!!!!!!!!!!!!!!GOT STATUS CODE 429; RATE LIMITING FROM SPOTIFY!!!!!!!!!!!!!!!!!!')
 
 
 def get_token():
@@ -130,8 +138,8 @@ def get_token():
 	return response['access_token']
 
 
-def main():
-	
+def main(log_level):
+	logging.basicConfig(level=log_level)
 	if config.getboolean('spotify_user_info', 'is_new_playlist'):
 		# Playlist is empty, so prime the playlist with ~6 months' worth of titles
 		for i in range(13, 0, -1):
@@ -151,7 +159,7 @@ def main():
 
 
 if __name__ == '__main__':
-	main()
+	main(logging.DEBUG)
 
 
 
