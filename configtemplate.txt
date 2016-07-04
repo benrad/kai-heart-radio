@@ -1,0 +1,14 @@
+[spotify_credentials]
+# Client ID and secret can be obtained by creating a Spotify app.
+# Refresh token is obtained via the auth flow documented at https://developer.spotify.com/web-api/authorization-guide/#authorization-code-flow
+client_id = 
+client_secret = 
+refresh_token = 
+
+[spotify_user_info]
+# User ID is your spotify user ID. 
+# Playlist ID can be obtained by right-clicking the playlist and selecting "Copy Spotify URI".
+# Set is_new_playlist to true to scrape historical songs to bootstrap the playlist.
+user_id = 
+playlist_id = 
+is_new_playlist = 
