@@ -76,21 +76,21 @@ def search_song(title, artist):
 	return uri_string[uri_string.rfind(':')+1:]  # Strip off the 'spotify:track:' tag.
 
 
-def get_playlist_contents(playlist_id, user_id):
+def get_playlist_contents(playlist_id, user_id, limit=100):
 	"""
 	Gets the latest 100 tracks in a playlist.
 	Returns a list of spotify track uris.
 	"""
 	token = get_token()
 	headers = {'Authorization': 'Bearer ' + token}
-	base_url = SPOTIFY_API_HOST + 'users/{0}/playlists/{1}/tracks'
-	url = base_url.format(SPOTIFY_USER_ID, SPOTIFY_PLAYLIST_ID)
+	base_url = SPOTIFY_API_HOST + 'users/{0}/playlists/{1}/tracks?limit={2}'
+	url = base_url.format(SPOTIFY_USER_ID, SPOTIFY_PLAYLIST_ID, limit)
 	response = requests.get(url, headers=headers).json()  # Todo: Handle errors here. Not using this function so ok for now.
 
 	uris = []
 	for item in response['items']:
 		uri_string = item['track']['uri']
-		uris.append(uri_string[uri_string.rfind(':'):])
+		uris.append(uri_string[uri_string.rfind(':')+1:])
 	return uris
 
 
@@ -138,7 +138,8 @@ def get_token():
 	return response['access_token']
 
 
-def main(log_level):
+def main(log_level=logging.WARNING):
+	# Todo: check that latest songs are not already in playlist. If they are, day hasn't been posted yet.
 	logging.basicConfig(level=log_level)
 	if config.getboolean('spotify_user_info', 'is_new_playlist'):
 		# Playlist is empty, so prime the playlist with ~6 months' worth of titles
@@ -154,12 +155,20 @@ def main(log_level):
 
 	else:
 		songs = get_songs('http://www.marketplace.org/latest-music')
+		if not songs:
+			return
 		uris = [search_song(song['title'], song['artist']) for song in songs]
+		latest_playlist_songs = get_playlist_contents(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, len(uris))
+		print uris
+		print latest_playlist_songs
+		if set(uris) == set(latest_playlist_songs):  # The latest site songs are the same as the latest playlist songs
+			logging.debug("Songs from site {0} == songs from playlist {1}".format(uris, latest_playlist_songs))
+			return
 		add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
 
 
 if __name__ == '__main__':
-	main(logging.DEBUG)
+	main()
 
 
 
