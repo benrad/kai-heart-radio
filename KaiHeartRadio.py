@@ -158,8 +158,9 @@ def main(log_level=logging.WARNING):
 		if not songs:
 			return
 		uris = [search_song(song['title'], song['artist']) for song in songs]
+		uris = filter(None, uris)
 		latest_playlist_songs = get_playlist_contents(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, len(uris))
-		if set(uris) == set(latest_playlist_songs):  # The latest site songs are the same as the latest playlist songs
+		if set(uris).issubset(set(latest_playlist_songs)):  # The latest site songs are the same as the latest playlist songs
 			logging.debug("Songs from site {0} == songs from playlist {1}".format(uris, latest_playlist_songs))
 			return
 		add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
