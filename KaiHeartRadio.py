@@ -1,6 +1,7 @@
 import requests
 import ConfigParser
 import logging
+import os
 from bs4 import BeautifulSoup
 from urllib2 import quote
 from base64 import b64encode
@@ -8,18 +9,20 @@ from time import sleep
 
 
 config = ConfigParser.ConfigParser()
-config.read('config.txt')
+config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.txt')
+config.read(config_path)
 
-SPOTIFY_ACCOUNT_HOST = 'https://accounts.spotify.com/api/'
-SPOTIFY_API_HOST = 'https://api.spotify.com/v1/'
+SPOTIFY_ACCOUNT_HOST = config.get('spotify_hosts', 'account_host')
+SPOTIFY_API_HOST = config.get('spotify_hosts', 'api_host')
 
 SPOTIFY_CLIENT_ID = config.get('spotify_credentials', 'client_id')
 SPOTIFY_CLIENT_SECRET = config.get('spotify_credentials', 'client_secret')
+
 SPOTIFY_USER_ID = config.get('spotify_user_info', 'user_id')
 SPOTIFY_PLAYLIST_ID = config.get('spotify_user_info', 'playlist_id')
 
 
-def get_songs(url, latest=True):
+def get_songs(url, latest):
 	"""
 	Gets the tracks from a marketplace.org/latest-music page.
 	If latest is True, gets only the latest day. False gets all days on page.
@@ -72,7 +75,8 @@ def search_song(title, artist):
 		logging.debug('Found no results for song {0}'.format(title))
 		return ''
 	uri_string = results['tracks']['items'][0]['uri']
-	logging.debug('Found uri {0} for song {1}'.format(uri_string[uri_string.rfind(':')+1:], title))
+	logging.debug('Found uri {0} for song {1}'.format(
+		uri_string[uri_string.rfind(':')+1:], title))
 	return uri_string[uri_string.rfind(':')+1:]  # Strip off the 'spotify:track:' tag.
 
 
@@ -120,6 +124,44 @@ def add_songs(playlist_id, user_id, uris):
 		logging.warning('!!!!!!!!!!!!!!!!!!!!!GOT STATUS CODE 429; RATE LIMITING FROM SPOTIFY!!!!!!!!!!!!!!!!!!')
 
 
+def page_to_playlist(url, playlist_id, user_id, latest=True):
+	"""
+	Wrapper function that adds songs from a url to a playlist.
+	If latest is True, adds only most recent day's songs, and only if they have
+	not already been added. 
+	If False, adds all songs from page (used for bootstrapping empty playlist).
+	"""
+	songs = get_songs(url, latest)
+	if not songs:
+		return
+	uris = [search_song(song['title'], song['artist']) for song in songs]
+	uris = filter(None, uris)
+	if latest:
+		latest_playlist_songs = get_playlist_contents(
+			playlist_id, user_id, len(uris))
+		if set(uris).issubset(set(latest_playlist_songs)):  # The latest site songs are the same as the latest playlist songs
+			logging.debug("Songs from site {0} == songs from playlist {1}"
+				.format(uris, latest_playlist_songs))
+			return
+	add_songs(playlist_id, user_id, uris)
+
+
+def bootstrap_playlist(playlist_id, user_id, pages):
+	"""
+	For use when playlist is empty.
+	Gets all songs from $pages number of pages and adds them to playlist
+	"""
+	# Process in descending order so latest songs are first in playlist
+	for i in range(pages, 0, -1):
+		page_to_playlist('http://www.marketplace.org/latest-music?page={0}', 
+			playlist_id, user_id, False)
+
+	# First page doesn't have a querystring, so process it separately 
+	page_to_playlist('http://www.marketplace.org/latest-music', 
+		playlist_id, user_id False)
+	config.set('spotify_user_info', 'is_new_playlist', False)
+
+
 def get_token():
 	"""
 	Checks for a new spotify access token for the user who granted the refresh token.
@@ -129,45 +171,26 @@ def get_token():
 	url = SPOTIFY_ACCOUNT_HOST + 'token'
 	current_refresh_token = config.get('spotify_credentials', 'refresh_token')
 	body = {'grant_type': 'refresh_token', 'refresh_token': current_refresh_token}
-	auth_header = 'Basic ' + b64encode('{0}:{1}'.format(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET))
+	auth_header = 'Basic ' + b64encode('{0}:{1}'.format(SPOTIFY_CLIENT_ID, 
+		SPOTIFY_CLIENT_SECRET))
 	headers = {'Authorization': auth_header}
 	
 	response = requests.post(url, headers=headers, data=body).json()
 	if response.has_key('refresh_token'):
-		config.set('spotify_credentials', 'refresh_token', response['refresh_token'])
+		config.set('spotify_credentials', 'refresh_token', 
+			response['refresh_token'])
 	return response['access_token']
 
 
 def main(log_level=logging.WARNING):
-	# Todo: check that latest songs are not already in playlist. If they are, day hasn't been posted yet.
 	logging.basicConfig(level=log_level)
 	if config.getboolean('spotify_user_info', 'is_new_playlist'):
 		# Playlist is empty, so prime the playlist with ~6 months' worth of titles
-		for i in range(13, 0, -1):
-			songs = get_songs('http://www.marketplace.org/latest-music?page={0}', latest=False)
-			uris = [search_song(song['title'], song['artist']) for song in songs]
-			add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
-
-		songs = get_songs('http://www.marketplace.org/latest-music', latest=False)
-		uris = [search_song(song['title'], song['artist']) for song in songs]
-		add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
-		config.set('spotify_user_info', 'is_new_playlist', False)
-
+		bootstrap_playlist(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, 13)
 	else:
-		songs = get_songs('http://www.marketplace.org/latest-music')
-		if not songs:
-			return
-		uris = [search_song(song['title'], song['artist']) for song in songs]
-		uris = filter(None, uris)
-		latest_playlist_songs = get_playlist_contents(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, len(uris))
-		if set(uris).issubset(set(latest_playlist_songs)):  # The latest site songs are the same as the latest playlist songs
-			logging.debug("Songs from site {0} == songs from playlist {1}".format(uris, latest_playlist_songs))
-			return
-		add_songs(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, uris)
+		page_to_playlist('http://www.marketplace.org/latest-music', 
+			SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID)
 
 
 if __name__ == '__main__':
 	main()
-
-
-

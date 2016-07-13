@@ -12,3 +12,7 @@ refresh_token =
 user_id = 
 playlist_id = 
 is_new_playlist = 
+
+[spotify_hosts]
+account_host = 'https://accounts.spotify.com/api/'
+api_host = 'https://api.spotify.com/v1/'
