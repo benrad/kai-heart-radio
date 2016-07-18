@@ -17,6 +17,7 @@ import ConfigParser
 import logging
 import os
 from docopt import docopt
+from datetime import datetime
 from uuid import uuid4
 from bs4 import BeautifulSoup
 from urllib2 import quote
@@ -83,9 +84,12 @@ def search_song(title, artist):
 	url = base_url.format(title, artist)
 	results = requests.get(url).json()
 
-	if results['tracks']['total'] == 0:
-		logging.debug('Found no results for song {0}'.format(title))
-		return ''
+	try:
+		if results['tracks']['total'] == 0:
+			logging.debug('Found no results for song {0}'.format(title))
+			return ''
+	except KeyError as e:
+		logging.warning('Invalid result from spotify on key {0}:\n{1}'.format(e, results))
 	uri_string = results['tracks']['items'][0]['uri']
 	logging.debug('Found uri {0} for song {1}'.format(
 		uri_string[uri_string.rfind(':')+1:], title))
@@ -192,8 +196,10 @@ def get_token():
 
 
 def main(arguments):
-	log_level = logging.DEBUG if arguments['-d'] else logging.WARNING
+	log_level = logging.DEBUG if arguments['-d'] else logging.INFO
 	logging.basicConfig(level=log_level)
+	logging.info('\n\nBeginning log {0}'.format(datetime.now()))
+
 	if arguments['bootstrap']:
 		pages = arguments['<pages>']
 		bootstrap_playlist(SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID, pages)
@@ -201,6 +207,7 @@ def main(arguments):
 		page_to_playlist('http://www.marketplace.org/latest-music', 
 			SPOTIFY_PLAYLIST_ID, SPOTIFY_USER_ID)
 
+	logging.info('End log {0}'.format(datetime.now()))
 
 if __name__ == '__main__':
 	arguments = docopt(__doc__)
