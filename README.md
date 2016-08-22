@@ -9,3 +9,6 @@ The app scrapes the Marketplace site for new songs, but the Spotify bits are gen
 The app runs on a t2.nano instance as an hourly cron job.
 
 A template for the config file is provided. To get going, you'll need to first [create a Spotify app](https://developer.spotify.com/my-applications/#!/applications/create) and then follow the [Web API Authorization Code Flow](https://developer.spotify.com/web-api/authorization-guide/#authorization-code-flow) to get yourself an access token.
+
+Now Kai Ryssdal approved:
+![https://twitter.com/kairyssdal/status/761617874213408768](http://benradosevich.com/images/kaiheartradio.png)
